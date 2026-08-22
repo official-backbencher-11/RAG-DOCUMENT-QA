@@ -1,0 +1,10 @@
+streamlit
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+qdrant-client
+langchain-qdrant
+pypdf
+pdfplumber
+python-dotenv

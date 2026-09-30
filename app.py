@@ -24,7 +24,8 @@ st.set_page_config(page_title="RAG Document QA", page_icon="📄", layout="wide"
 
 
 @st.cache_resource(show_spinner="Connecting to the vector database...")
-def get_pipeline():
+def get_pipeline(code_version=RAGPipeline.VERSION):
+    # code_version is part of the cache key, so a redeploy never reuses an old cached pipeline object
     return RAGPipeline()
 
 

@@ -85,6 +85,8 @@ def diagnose_url(url):
 
 
 class RAGPipeline:
+    VERSION = 3  # bump when the class interface changes (invalidates Streamlit's cache)
+
     def __init__(self):
         api_key = _clean(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
         self.embeddings = GoogleGenerativeAIEmbeddings(

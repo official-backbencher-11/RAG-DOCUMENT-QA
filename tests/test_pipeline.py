@@ -157,3 +157,23 @@ def test_parallel_ingest_and_skip_existing(pipe, tmp_path, monkeypatch):
     assert count(pipe) == 9 and calls["n"] == 9
     pipe.ingest_document(str(f), "many.pdf", "s1")      # nothing new to embed
     assert calls["n"] == 9 and count(pipe) == 9
+
+
+def test_thinking_fallback(pipe, tmp_path):
+    f = tmp_path / "a.pdf"
+    make_pdf(f, ["hello world"])
+    pipe.ingest_document(str(f), "a.pdf", "s1")
+    class Boom:
+        def __or__(self, o): return self
+    pipe._thinking = 0
+    calls = {"n": 0}
+    def build(thinking):
+        calls["n"] += 1
+        return GenericFakeChatModel(messages=iter([AIMessage(content="fine")]))
+    class Bad(GenericFakeChatModel):
+        def _stream(self, *a, **k):
+            raise ValueError("thinking_budget is not supported")
+    pipe.llm = Bad(messages=iter([AIMessage(content="x")]))
+    pipe._build_llm = build
+    stream, _ = pipe.answer_query("hello", "s1")
+    assert "".join(stream) == "fine" and pipe._thinking is None

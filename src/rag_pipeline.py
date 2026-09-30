@@ -25,7 +25,7 @@ COLLECTION_NAME = "rag_documents"
 DEFAULT_EMBEDDING_MODEL = "models/gemini-embedding-2"
 DEFAULT_LLM_MODEL = "gemini-3.6-flash"
 DEFAULT_VECTOR_SIZE = 3072
-TOP_K = int(os.environ.get("TOP_K", 6))
+TOP_K = int(os.environ.get("TOP_K", 5))
 MAX_PAGES = int(os.environ.get("MAX_PAGES", 300))          # pages allowed per PDF
 SESSION_TTL_HOURS = float(os.environ.get("SESSION_TTL_HOURS", 24))  # auto-delete old data
 RETRIES = 4
@@ -87,7 +87,7 @@ def diagnose_url(url):
 
 
 class RAGPipeline:
-    VERSION = 4  # bump when the class interface changes (invalidates Streamlit's cache)
+    VERSION = 5  # bump when the class interface changes (invalidates Streamlit's cache)
 
     def __init__(self):
         api_key = _clean(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
@@ -95,13 +95,11 @@ class RAGPipeline:
             model=_clean(os.environ.get("EMBEDDING_MODEL")) or DEFAULT_EMBEDDING_MODEL,
             google_api_key=api_key,
         )
-        llm_kwargs = {}
-        if os.environ.get("THINKING_BUDGET", "").strip():  # 0 = no "thinking" -> much faster answers
-            llm_kwargs["thinking_budget"] = int(os.environ["THINKING_BUDGET"])
-        self.llm = ChatGoogleGenerativeAI(
-            model=_clean(os.environ.get("GEMINI_MODEL")) or DEFAULT_LLM_MODEL,
-            temperature=0, google_api_key=api_key, **llm_kwargs,
-        )
+        self._api_key = api_key
+        self._llm_model = _clean(os.environ.get("GEMINI_MODEL")) or DEFAULT_LLM_MODEL
+        budget = os.environ.get("THINKING_BUDGET", "0").strip()  # 0 = no "thinking" -> much faster answers
+        self._thinking = int(budget) if budget not in ("", "off") else None
+        self.llm = self._build_llm(self._thinking)
         self.collection_name = COLLECTION_NAME
         self.storage_mode = "memory"
         self.connection_error = None
@@ -111,6 +109,11 @@ class RAGPipeline:
         self.vector_store = QdrantVectorStore(
             client=self.client, collection_name=self.collection_name, embedding=self.embeddings
         )
+
+    def _build_llm(self, thinking):
+        kwargs = {"thinking_budget": thinking} if thinking is not None else {}
+        return ChatGoogleGenerativeAI(model=self._llm_model, temperature=0,
+                                      google_api_key=self._api_key, **kwargs)
 
     # ---------- setup ----------
     def _connect(self):
@@ -232,6 +235,21 @@ class RAGPipeline:
         )
         prompt = PromptTemplate(template=PROMPT_TEMPLATE,
                                 input_variables=["retrieved_chunks", "user_query", "not_found"])
-        chain = prompt | self.llm | StrOutputParser()
-        stream = chain.stream({"retrieved_chunks": context, "user_query": query, "not_found": NOT_FOUND_MSG})
-        return stream, retrieved_docs
+        inputs = {"retrieved_chunks": context, "user_query": query, "not_found": NOT_FOUND_MSG}
+
+        def stream():
+            started = False
+            try:
+                for tok in (prompt | self.llm | StrOutputParser()).stream(inputs):
+                    started = True
+                    yield tok
+            except Exception as e:  # noqa: BLE001
+                if started or self._thinking is None or "think" not in str(e).lower():
+                    raise
+                # model does not support a thinking budget -> rebuild without it and retry
+                logger.warning("thinking_budget unsupported (%s); retrying without it", e)
+                self._thinking = None
+                self.llm = self._build_llm(None)
+                yield from (prompt | self.llm | StrOutputParser()).stream(inputs)
+
+        return stream(), retrieved_docs

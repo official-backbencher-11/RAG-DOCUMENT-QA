@@ -1,40 +1,36 @@
 # Multimodal RAG-Based Intelligent Document QA System 📄
 
-Hey there! Welcome to my B.Tech Final Year Mini Project. 
+A Retrieval-Augmented Generation (RAG) app for asking questions about PDF documents. Answers come **only** from the uploaded content and always include page citations (file name + page).
 
-This is a Retrieval-Augmented Generation (RAG) system built to query complex documents like PDFs and get answers strictly based on the uploaded content. My main goal here was to achieve **zero hallucinations** by making sure every answer is backed by an exact source citation (page number). 
+## Features
+- Upload multiple PDFs (up to 25 MB each); text is chunked (1000 chars, 150 overlap) and embedded with Google Gemini.
+- Vectors are stored in Qdrant Cloud; the top 4 matching chunks are sent to Gemini, which streams the answer.
+- Each browser session only searches its own documents (no cross-user leakage); re-uploading a file does not create duplicates.
+- Says "I cannot find this information in the uploaded document." when the answer is not in the PDFs.
+- If Qdrant Cloud is unreachable the app shows the reason and falls back to temporary in-memory storage.
 
-## What does it do?
-- You can upload multiple PDFs (up to 25MB each).
-- It extracts the text, splits it into chunks, and generates vector embeddings using Google's models.
-- You can ask questions in natural language, and it streams the answers right back to you, complete with page citations so you can verify the information.
+## Tech stack
+Streamlit · LangChain · Google Gemini (LLM + embeddings) · Qdrant
 
-## Tech Stack
-- **Frontend**: Streamlit
-- **LLM**: Google Gemini (Flash)
-- **Embeddings**: Google Gemini Embeddings
-- **Vector Database**: Qdrant Cloud 
-- **Framework**: LangChain
+## Run locally
+```bash
+git clone https://github.com/official-backbencher-11/RAG-DOCUMENT-QA.git
+cd RAG-DOCUMENT-QA
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env    # then fill in your keys
+streamlit run app.py
+```
 
-## How to run it locally
-If you want to spin this up on your own machine:
+## Deploy on Streamlit Cloud
+Add the keys under *Manage app → Settings → Secrets* (see `.streamlit/secrets.toml.example`):
+`GEMINI_API_KEY`, `QDRANT_URL` (e.g. `https://xxxx.region.cloud.qdrant.io:6333`), `QDRANT_API_KEY`.
+Optional: `GEMINI_MODEL`, `EMBEDDING_MODEL` to override the default models.
 
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/official-backbencher-11/RAG-DOCUMENT-QA.git
-   cd RAG-DOCUMENT-QA
-   ```
-2. Set up a virtual environment and install the requirements:
-   ```bash
-   python -m venv venv
-   # On Windows use: venv\Scripts\activate
-   source venv/bin/activate 
-   pip install -r requirements.txt
-   ```
-3. Set up your environment variables by renaming `.env.example` to `.env` and adding your API keys (Gemini and Qdrant).
-4. Run the app:
-   ```bash
-   streamlit run app.py
-   ```
+**"Connection reset by peer" / cannot connect to Qdrant?** Free Qdrant Cloud clusters are suspended after inactivity. Open cloud.qdrant.io, resume (or recreate) the cluster and copy its URL and API key again.
 
-Enjoy querying your documents!
+## Tests
+```bash
+pip install pytest reportlab
+pytest
+```

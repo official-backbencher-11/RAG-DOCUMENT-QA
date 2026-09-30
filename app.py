@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import uuid
 
 import streamlit as st
@@ -15,7 +16,7 @@ try:
 except Exception:  # no secrets file locally
     pass
 
-from src.rag_pipeline import RAGPipeline  # noqa: E402
+from src.rag_pipeline import MAX_PAGES, RAGPipeline  # noqa: E402
 
 MAX_FILE_MB = 25
 
@@ -43,6 +44,9 @@ def main():
 
     try:
         pipeline = get_pipeline()
+        if time.time() - st.session_state.get("_last_cleanup", 0) > 3600:  # hourly housekeeping
+            pipeline.cleanup_expired()
+            st.session_state["_last_cleanup"] = time.time()
     except Exception as e:  # noqa: BLE001
         st.error(f"Could not start the pipeline: {e}")
         st.stop()
@@ -63,7 +67,8 @@ def main():
     with st.sidebar:
         st.header("Document Upload")
         uploaded_files = st.file_uploader(f"Upload PDF Documents (Max {MAX_FILE_MB}MB each)",
-                                          type=["pdf"], accept_multiple_files=True)
+                                          type=["pdf"], accept_multiple_files=True,
+                                          help=f"Text-based PDFs only, up to {MAX_PAGES} pages each.")
         if st.button("Process Documents", type="primary"):
             if not uploaded_files:
                 st.error("Please upload at least one PDF.")

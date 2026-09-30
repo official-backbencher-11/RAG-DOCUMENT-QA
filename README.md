@@ -9,6 +9,16 @@ A Retrieval-Augmented Generation (RAG) app for asking questions about PDF docume
 - Says "I cannot find this information in the uploaded document." when the answer is not in the PDFs.
 - If Qdrant Cloud is unreachable the app shows the reason and falls back to temporary in-memory storage.
 
+## Limits (configurable via env / secrets)
+| Setting | Default | Meaning |
+|---|---|---|
+| upload size | 25 MB | per PDF |
+| `MAX_PAGES` | 300 | pages per PDF |
+| `TOP_K` | 6 | chunks sent to Gemini per question |
+| `SESSION_TTL_HOURS` | 24 | stored chunks older than this are deleted automatically |
+
+Gemini rate-limit errors are retried automatically with backoff.
+
 ## Tech stack
 Streamlit · LangChain · Google Gemini (LLM + embeddings) · Qdrant
 

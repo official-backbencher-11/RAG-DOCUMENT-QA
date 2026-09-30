@@ -101,3 +101,44 @@ def test_bad_qdrant_url_falls_back(monkeypatch):
 
 def test_clean():
     assert rp._clean('  "abc" ') == "abc" and rp._clean(None) is None
+
+
+def test_page_limit(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(rp, "MAX_PAGES", 2)
+    f = tmp_path / "big.pdf"
+    make_pdf(f, ["a one", "b two", "c three"])
+    with pytest.raises(ValueError, match="limit"):
+        pipe.ingest_document(str(f), "big.pdf", "s1")
+
+
+def test_cleanup_expired(pipe, tmp_path, monkeypatch):
+    f = tmp_path / "a.pdf"
+    make_pdf(f, ["hello world"])
+    pipe.ingest_document(str(f), "a.pdf", "s1")
+    monkeypatch.setattr(rp, "SESSION_TTL_HOURS", 0)
+    pipe.cleanup_expired()
+    assert count(pipe) == 0
+
+
+def test_retry_then_success(monkeypatch):
+    monkeypatch.setattr(rp.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise Exception("429 RESOURCE_EXHAUSTED")
+        return "done"
+    assert rp._with_retry(flaky) == "done" and calls["n"] == 3
+
+
+def test_retry_gives_friendly_error(monkeypatch):
+    monkeypatch.setattr(rp.time, "sleep", lambda s: None)
+    def always():
+        raise Exception("429 quota exceeded")
+    with pytest.raises(RuntimeError, match="rate limit"):
+        rp._with_retry(always)
+    def other():
+        raise KeyError("x")
+    with pytest.raises(KeyError):
+        rp._with_retry(other)

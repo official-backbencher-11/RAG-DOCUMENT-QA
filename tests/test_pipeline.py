@@ -142,3 +142,18 @@ def test_retry_gives_friendly_error(monkeypatch):
         raise KeyError("x")
     with pytest.raises(KeyError):
         rp._with_retry(other)
+
+
+def test_parallel_ingest_and_skip_existing(pipe, tmp_path, monkeypatch):
+    monkeypatch.setattr(rp, "EMBED_BATCH", 2)
+    f = tmp_path / "many.pdf"
+    make_pdf(f, [f"page number {i} unique words w{i}" for i in range(9)])
+    calls = {"n": 0}
+    orig = pipe.embeddings.embed_documents
+    def spy(texts):
+        calls["n"] += len(texts); return orig(texts)
+    monkeypatch.setattr(pipe.embeddings, "embed_documents", spy)
+    assert pipe.ingest_document(str(f), "many.pdf", "s1") == 9
+    assert count(pipe) == 9 and calls["n"] == 9
+    pipe.ingest_document(str(f), "many.pdf", "s1")      # nothing new to embed
+    assert calls["n"] == 9 and count(pipe) == 9

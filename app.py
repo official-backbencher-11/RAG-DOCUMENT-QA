@@ -10,7 +10,7 @@ load_dotenv()
 
 # Streamlit Cloud secrets -> environment variables (works even for nested/odd configs)
 try:
-    for _k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "QDRANT_URL", "QDRANT_API_KEY", "GEMINI_MODEL", "EMBEDDING_MODEL"):
+    for _k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "QDRANT_URL", "QDRANT_API_KEY", "GEMINI_MODEL", "EMBEDDING_MODEL", "THINKING_BUDGET", "EMBED_WORKERS", "TOP_K", "MAX_PAGES", "SESSION_TTL_HOURS"):
         if _k in st.secrets and not os.environ.get(_k):
             os.environ[_k] = str(st.secrets[_k])
 except Exception:  # no secrets file locally

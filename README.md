@@ -15,6 +15,8 @@ A Retrieval-Augmented Generation (RAG) app for asking questions about PDF docume
 | upload size | 25 MB | per PDF |
 | `MAX_PAGES` | 300 | pages per PDF |
 | `TOP_K` | 6 | chunks sent to Gemini per question |
+| `EMBED_WORKERS` | 4 | parallel embedding requests while ingesting |
+| `THINKING_BUDGET` | unset | set to `0` to turn off Gemini "thinking" for faster answers (if the model supports it) |
 | `SESSION_TTL_HOURS` | 24 | stored chunks older than this are deleted automatically |
 
 Gemini rate-limit errors are retried automatically with backoff.

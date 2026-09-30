@@ -5,6 +5,7 @@ import os
 import socket
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from langchain_community.document_loaders import PyPDFLoader
@@ -29,6 +30,7 @@ MAX_PAGES = int(os.environ.get("MAX_PAGES", 300))          # pages allowed per P
 SESSION_TTL_HOURS = float(os.environ.get("SESSION_TTL_HOURS", 24))  # auto-delete old data
 RETRIES = 4
 EMBED_BATCH = 64
+EMBED_WORKERS = int(os.environ.get("EMBED_WORKERS", 4))  # parallel embedding requests
 NOT_FOUND_MSG = "I cannot find this information in the uploaded document."
 
 PROMPT_TEMPLATE = """You are an expert AI assistant answering questions strictly from the provided context.
@@ -85,7 +87,7 @@ def diagnose_url(url):
 
 
 class RAGPipeline:
-    VERSION = 3  # bump when the class interface changes (invalidates Streamlit's cache)
+    VERSION = 4  # bump when the class interface changes (invalidates Streamlit's cache)
 
     def __init__(self):
         api_key = _clean(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
@@ -93,9 +95,12 @@ class RAGPipeline:
             model=_clean(os.environ.get("EMBEDDING_MODEL")) or DEFAULT_EMBEDDING_MODEL,
             google_api_key=api_key,
         )
+        llm_kwargs = {}
+        if os.environ.get("THINKING_BUDGET", "").strip():  # 0 = no "thinking" -> much faster answers
+            llm_kwargs["thinking_budget"] = int(os.environ["THINKING_BUDGET"])
         self.llm = ChatGoogleGenerativeAI(
             model=_clean(os.environ.get("GEMINI_MODEL")) or DEFAULT_LLM_MODEL,
-            temperature=0, google_api_key=api_key,
+            temperature=0, google_api_key=api_key, **llm_kwargs,
         )
         self.collection_name = COLLECTION_NAME
         self.storage_mode = "memory"
@@ -186,9 +191,25 @@ class RAGPipeline:
             digest = hashlib.sha256(f"{session_id}|{display_name}|{i}|{doc.page_content}".encode()).hexdigest()
             ids.append(str(uuid.UUID(digest[:32])))  # deterministic -> re-uploads don't duplicate
 
-        for start in range(0, len(splits), EMBED_BATCH):
+        # Skip chunks that are already stored (re-uploads are instant), embed the rest in parallel.
+        existing = set()
+        try:
+            existing = {str(p.id) for p in self.client.retrieve(self.collection_name, ids=ids, with_payload=False)}
+        except Exception as e:  # noqa: BLE001
+            logger.debug("existing-id lookup failed: %s", e)
+        todo = [(d, i) for d, i in zip(splits, ids) if i not in existing]
+        batches = [todo[k:k + EMBED_BATCH] for k in range(0, len(todo), EMBED_BATCH)]
+
+        def store(batch):
             _with_retry(self.vector_store.add_documents,
-                        documents=splits[start:start + EMBED_BATCH], ids=ids[start:start + EMBED_BATCH])
+                        documents=[d for d, _ in batch], ids=[i for _, i in batch])
+
+        if len(batches) <= 1:
+            for b in batches:
+                store(b)
+        else:
+            with ThreadPoolExecutor(max_workers=EMBED_WORKERS) as pool:
+                list(pool.map(store, batches))  # re-raises the first error
         return len(splits)
 
     def clear_session(self, session_id):

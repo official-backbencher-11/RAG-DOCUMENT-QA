@@ -9,20 +9,37 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 class RAGPipeline:
+    @staticmethod
+    def _clean(v):
+        """Strip whitespace and accidental quotes from secrets."""
+        return v.strip().strip('"').strip("'").strip() if v else v
+
     def __init__(self):
         # Initialize Google gemini-embedding-2
         self.embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2")
         self.collection_name = "rag_documents"
         
-        qdrant_url = os.environ.get("QDRANT_URL")
-        qdrant_api_key = os.environ.get("QDRANT_API_KEY")
-        
-        # Initialize Qdrant Client (Cloud if credentials provided, else in-memory for testing)
+        qdrant_url = self._clean(os.environ.get("QDRANT_URL"))
+        qdrant_api_key = self._clean(os.environ.get("QDRANT_API_KEY"))
+        self.storage_mode = "memory"
+        self.connection_error = None
+
+        # Try Qdrant Cloud first; if it is unreachable (wrong/paused cluster, bad
+        # URL, TLS problem) fall back to in-memory Qdrant instead of crashing.
+        self.client = None
         if qdrant_url and qdrant_api_key:
-            self.client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
-        else:
+            try:
+                if "://" not in qdrant_url:
+                    qdrant_url = "https://" + qdrant_url
+                client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key, timeout=20)
+                client.get_collections()  # connectivity check
+                self.client = client
+                self.storage_mode = "cloud"
+            except Exception as e:
+                self.connection_error = f"{type(e).__name__}: {e}"
+        if self.client is None:
             self.client = QdrantClient(location=":memory:")
-            
+
         # Ensure collection exists in Qdrant
         if not self.client.collection_exists(self.collection_name):
             self.client.create_collection(

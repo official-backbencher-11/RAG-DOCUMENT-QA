@@ -23,6 +23,14 @@ def main():
         st.stop()
 
     pipeline = get_pipeline()
+    if pipeline.storage_mode == "memory":
+        if pipeline.connection_error:
+            st.warning("Could not connect to Qdrant Cloud, so temporary in-memory storage is being used "
+                       "(uploaded documents will be lost when the app restarts). "
+                       "Check QDRANT_URL / QDRANT_API_KEY in your secrets and that the cluster is running. "
+                       f"Details: {pipeline.connection_error}")
+        else:
+            st.info("QDRANT_URL / QDRANT_API_KEY not set - using temporary in-memory storage.")
     
     # Initialize chat history
     if "messages" not in st.session_state:
